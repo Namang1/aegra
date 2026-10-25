@@ -237,6 +237,16 @@ class TestWebhookCredentialMasking:
         resp = _cron_to_response(cron)
         assert resp.payload["webhook"] == "https://host.example:8443/a/b?q=1"
 
+    def test_invalid_port_does_not_break_reads(self) -> None:
+        from aegra_api.services.cron_service import _cron_to_response
+
+        cron = _make_cron_orm(payload={"webhook": "https://u:p@host.example:bad/x"})
+        from datetime import UTC, datetime
+
+        cron.created_at = cron.updated_at = datetime.now(UTC)
+        resp = _cron_to_response(cron)
+        assert resp.payload["webhook"] == "https://host.example:bad/x"
+
     def test_webhook_without_credentials_unchanged(self) -> None:
         from aegra_api.services.cron_service import _cron_to_response
 

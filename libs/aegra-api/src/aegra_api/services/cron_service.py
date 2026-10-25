@@ -138,9 +138,14 @@ def _mask_webhook_credentials(url: str) -> str:
         return url
     if not parsed.hostname:
         return url
+    try:
+        port = parsed.port
+    except ValueError:
+        # Rows saved before the create-time port check; keep reads working.
+        return urlunparse(parsed._replace(netloc=parsed.netloc.rpartition("@")[2]))
     netloc = parsed.hostname
-    if parsed.port is not None:
-        netloc = f"{netloc}:{parsed.port}"
+    if port is not None:
+        netloc = f"{netloc}:{port}"
     return urlunparse(parsed._replace(netloc=netloc))
 
 

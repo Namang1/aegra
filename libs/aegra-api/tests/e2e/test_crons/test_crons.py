@@ -10,6 +10,7 @@ real scheduler when fast cron settings are enabled.
 """
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -18,6 +19,11 @@ import pytest
 
 from aegra_api.settings import settings
 from tests.e2e._utils import elog, get_e2e_client
+
+
+def _daily_schedule_away_from_now() -> str:
+    """Return a daily schedule 12 hours from now so it cannot fire during the test."""
+    return f"0 {(datetime.now(UTC).hour + 12) % 24} * * *"
 
 
 def _extract_message_content(cron: dict) -> str | None:
@@ -117,33 +123,42 @@ async def test_cron_accepts_graph_id_as_assistant_id() -> None:
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_cron_stateless_create_and_delete() -> None:
-    """Create a stateless cron, verify the Cron is returned, then delete it."""
+    """Create a stateless cron, verify the Cron is returned and no run starts."""
     client = get_e2e_client()
     marker = f"cron-stateless-{uuid4()}"
 
+    # A dedicated assistant, so any thread a run auto-creates is attributable to this cron.
     assistant = await client.assistants.create(
         graph_id="agent",
+        assistant_id=str(uuid4()),
         config={"tags": ["e2e-cron-stateless"]},
-        if_exists="do_nothing",
     )
     assistant_id = assistant["assistant_id"]
     elog("Assistant", assistant)
 
-    created = await client.crons.create(
-        assistant_id,
-        schedule="0 3 * * *",  # 03:00 UTC every day — won't fire during test
-        input={"messages": [{"role": "user", "content": marker}]},
-    )
-    elog("Cron.create (stateless)", created)
+    try:
+        created = await client.crons.create(
+            assistant_id,
+            schedule=_daily_schedule_away_from_now(),
+            input={"messages": [{"role": "user", "content": marker}]},
+            on_run_completed="keep",
+        )
+        elog("Cron.create (stateless)", created)
 
-    assert "run_id" not in created
-    assert created["enabled"] is True
-    assert created["next_run_date"] is not None
-    assert _extract_message_content(created) == marker
-    cron_id = created["cron_id"]
+        assert "run_id" not in created
+        assert created["enabled"] is True
+        assert created["next_run_date"] is not None
+        assert _extract_message_content(created) == marker
+        cron_id = created["cron_id"]
 
-    await client.crons.delete(cron_id)
-    elog("Cron deleted", {"cron_id": cron_id})
+        # A run would auto-create a thread stamped with this assistant_id ("keep" retains it).
+        threads = await client.threads.search(metadata={"assistant_id": assistant_id})
+        assert threads == []
+
+        await client.crons.delete(cron_id)
+        elog("Cron deleted", {"cron_id": cron_id})
+    finally:
+        await client.assistants.delete(assistant_id)
 
 
 @pytest.mark.e2e
@@ -200,7 +215,7 @@ async def test_cron_for_thread_create_and_delete() -> None:
     created = await client.crons.create_for_thread(
         thread_id,
         assistant_id,
-        schedule="0 4 * * *",  # 04:00 UTC every day
+        schedule=_daily_schedule_away_from_now(),
         input={"messages": [{"role": "user", "content": marker}]},
     )
     elog("Cron.create_for_thread", created)
