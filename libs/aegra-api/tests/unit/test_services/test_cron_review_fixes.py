@@ -7,6 +7,7 @@ These cover behaviours introduced for the cron PR fix-ups: per-user quota,
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
@@ -14,7 +15,7 @@ import pytest
 from fastapi import HTTPException
 
 from aegra_api.models.crons import CronCreate, CronUpdate
-from aegra_api.services.cron_service import CronService
+from aegra_api.services.cron_service import CronService, _cron_to_response
 
 
 @pytest.fixture
@@ -238,11 +239,7 @@ class TestWebhookCredentialMasking:
         assert resp.payload["webhook"] == "https://host.example:8443/a/b?q=1"
 
     def test_invalid_port_does_not_break_reads(self) -> None:
-        from aegra_api.services.cron_service import _cron_to_response
-
         cron = _make_cron_orm(payload={"webhook": "https://u:p@host.example:bad/x"})
-        from datetime import UTC, datetime
-
         cron.created_at = cron.updated_at = datetime.now(UTC)
         resp = _cron_to_response(cron)
         assert resp.payload["webhook"] == "https://host.example:bad/x"
